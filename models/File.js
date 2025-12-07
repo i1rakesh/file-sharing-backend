@@ -1,8 +1,7 @@
-
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const FileSchema = new mongoose.Schema({
-
     filename: {
         type: String,
         required: true,
@@ -11,42 +10,38 @@ const FileSchema = new mongoose.Schema({
         type: String,
         required: true,
     },
-    fileSize: { 
+    fileSize:{
         type: Number,
         required: true,
     },
-
     storageUrl: {
         type: String,
         required: true,
     },
-
     ownerId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
     },
-
     authorizedUsers: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-        default: []
+        user: { 
+            type: mongoose.Schema.Types.ObjectId, 
+            ref: 'User' 
+        },
+        expiresAt: { 
+            type: Date, 
+            default: null 
+        }
     }],
-
     shareLinkToken: {
         type: String,
         unique: true,
-        sparse: true, 
+        sparse: true,
     },
-
-    expiryDate: {
+    shareLinkExpiresAt: { 
         type: Date,
         default: null,
     },
-
-}, {
-    timestamps: true 
-});
+}, { timestamps: true });
 
 module.exports = mongoose.model('File', FileSchema);
- 

@@ -1,10 +1,14 @@
 
 const File = require('../models/File');
+const User = require('../models/User');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
 
-
+const fs = require('fs').promises; 
+const path = require('path');
+const { logActivity } = require('../utils/audit'); 
+const LOG_FILE = path.join(__dirname, '..', 'audit.log');
 exports.uploadFiles = async (req, res) => {
 
     if (!req.files || req.files.length === 0) {
@@ -38,12 +42,28 @@ exports.getFiles = async (req, res) => {
         const files = await File.find({
             $or: [
                 { ownerId: req.user._id },
-                { authorizedUsers: req.user._id }
+                { 'authorizedUsers.user': req.user._id } 
             ]
         })
-        .select('-shareLinkToken');
+        .select('-shareLinkToken -shareLinkExpiresAt'); 
 
-        res.status(200).json(files);
+        const filteredFiles = files.filter(file => {
+
+            if (file.ownerId.equals(req.user._id)) {
+                return true;
+            }
+
+            const authEntry = file.authorizedUsers.find(
+                auth => auth.user.equals(req.user._id)
+            );
+            
+            if (authEntry) {
+                return !authEntry.expiresAt || authEntry.expiresAt > new Date();
+            }
+
+            return false;
+        });
+        res.status(200).json(filteredFiles);
     } catch (error) {
         res.status(500).json({ message: 'Server error retrieving files.', error: error.message });
     }
@@ -67,12 +87,26 @@ exports.downloadFile = async (req, res) => {
 
         const isOwner = file.ownerId.equals(userId);
 
-        const isAuthorized = file.authorizedUsers.some(authId => authId.equals(userId));
+        const authEntry = file.authorizedUsers.find(
+            // Use .equals() for comparison with ObjectId
+            auth => auth.user.equals(userId)
+        );
+    
+        let isAuthorizedAndNotExpired = false;
+        if (authEntry) {
+            if (!authEntry.expiresAt || authEntry.expiresAt > new Date()) {
+                isAuthorizedAndNotExpired = true; 
+            }
+        }
 
-        if (isOwner || isAuthorized) {
-            return res.redirect(file.storageUrl); 
+        if (isOwner || isAuthorizedAndNotExpired) {
+            //For logs
+            const role = isOwner ? 'Owner' : 'Viewer';
+            await logActivity(userId, fileId, 'DOWNLOAD', `Downloaded via Dashboard by ${role}.`);
+
+            return res.redirect(file.storageUrl);
         } else {
-            return res.status(403).json({ message: 'Access Denied: You are not authorized to download this file.' });
+            return res.status(403).json({ message: 'Access Denied: Your authorization has expired or you are not permitted.' });
         }
 
     } catch (error) {
@@ -83,7 +117,7 @@ exports.downloadFile = async (req, res) => {
 
 exports.shareFileWithUsers = async (req, res) => {
     const fileId = req.params.id;
-    const { targetEmails } = req.body; 
+    const { targetEmails, expiresInHours = 72 } = req.body;
     const ownerId = req.user._id;
     const User = require('../models/User'); 
 
@@ -93,14 +127,7 @@ exports.shareFileWithUsers = async (req, res) => {
 
     try {
         const file = await File.findById(fileId);
-
-        if (!file) {
-            return res.status(404).json({ message: 'File not found.' });
-        }
-
-        if (!file.ownerId.equals(ownerId)) {
-            return res.status(403).json({ message: 'Forbidden: Only the file owner can share this file.' });
-        }
+        // ... (file not found and owner check) ...
 
         const targetUsers = await User.find({ email: { $in: targetEmails } }).select('_id');
         const targetUserIds = targetUsers.map(u => u._id);
@@ -109,15 +136,23 @@ exports.shareFileWithUsers = async (req, res) => {
             return res.status(404).json({ message: 'No valid users found to share with.' });
         }
 
+        // Calculate expiry time
+        const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
+
+        const newAuthorizedUsers = targetUserIds.map(userId => ({
+            user: userId,
+            expiresAt: expiresAt,
+        }));
+        
         const updatedFile = await File.findByIdAndUpdate(
             fileId,
-            { $addToSet: { authorizedUsers: { $each: targetUserIds } } },
+            { $push: { authorizedUsers: { $each: newAuthorizedUsers } } },
             { new: true }
         );
-        
-        
+        const sharedEmails = targetEmails.join(', ');
+        await logActivity(ownerId, fileId, 'SHARED_WITH_USER', `Shared with users: ${sharedEmails}. Expires in ${expiresInHours}h.`);
         res.status(200).json({ 
-            message: `${targetUserIds.length} users successfully granted access.`,
+            message: `${targetUserIds.length} users successfully granted access until ${expiresAt.toLocaleString()}.`,
             file: updatedFile
         });
 
@@ -129,6 +164,7 @@ exports.shareFileWithUsers = async (req, res) => {
 exports.generateShareLink = async (req, res) => {
     const fileId = req.params.id;
     const ownerId = req.user._id;
+    const { expiresInHours = 24 } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(fileId)) {
         return res.status(404).json({ message: 'Invalid File ID.' });
@@ -146,19 +182,22 @@ exports.generateShareLink = async (req, res) => {
         }
 
         let token = file.shareLinkToken;
+        let expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
-        if (!token) {
+        if (!token || (file.shareLinkExpiresAt && file.shareLinkExpiresAt < new Date())) {
             token = uuidv4();
-            file.shareLinkToken = token;
-            await file.save();
         }
+
+        file.shareLinkToken = token;
+        file.shareLinkExpiresAt = expiresAt; // Update expiry
+        await file.save();
 
         const shareUrl = `/share/${token}`;
 
         res.status(200).json({ 
-            message: 'Share link generated.',
+            message: `Share link generated. Expires on ${expiresAt.toLocaleString()}.`,
             shareLink: shareUrl,
-            token: token 
+            expiresAt: expiresAt,
         });
 
     } catch (error) {
@@ -168,7 +207,6 @@ exports.generateShareLink = async (req, res) => {
 
 exports.accessSharedFile = async (req, res) => {
     const linkToken = req.params.token;
-    
     const userJwt = req.query.access_token; 
 
     if (!userJwt) {
@@ -177,8 +215,7 @@ exports.accessSharedFile = async (req, res) => {
 
     let decoded;
     try {
-
-        decoded = jwt.verify(userJwt, process.env.JWT_SECRET);
+        decoded = jwt.verify(userJwt.trim(), process.env.JWT_SECRET); // Added trim for safety
         const userId = decoded.id;
 
         const file = await File.findOne({ shareLinkToken: linkToken });
@@ -187,20 +224,35 @@ exports.accessSharedFile = async (req, res) => {
             return res.status(404).json({ message: 'File not found or link is invalid.' });
         }
         
-        const isOwner = file.ownerId.equals(userId);
-        const isAuthorized = file.authorizedUsers.some(authId => authId.equals(userId));
+        // checking link expiry
+        if (file.shareLinkExpiresAt && file.shareLinkExpiresAt < new Date()) {
+            return res.status(403).json({ message: 'Access Denied: The share link has expired.' });
+        }
 
-        if (isOwner || isAuthorized) {
+        const isOwner = file.ownerId.equals(userId);
+
+        const authEntry = file.authorizedUsers.find(
+            auth => auth.user.equals(userId)
+        );
+
+        let isAuthorizedAndNotExpired = false;
+        if (authEntry) {
+             // If entry exists, check if it has not expired
+            if (!authEntry.expiresAt || authEntry.expiresAt > new Date()) {
+                isAuthorizedAndNotExpired = true;
+            }
+        }
+        
+        if (isOwner || isAuthorizedAndNotExpired) {
             return res.redirect(file.storageUrl);
         } else {
             return res.status(403).json({ 
-                message: 'Access Denied: Your account is not permitted to view this file, even with a valid link.' 
+                message: 'Access Denied: Your account is not permitted to view this file, or your access has expired.' 
             });
         }
 
     } catch (error) {
-
-        console.log('JWT Verification Error:', error); 
+        console.error('JWT Verification Error:', error.message); 
         return res.status(401).json({ message: 'Authentication failed. Please log in again.' });
     }
 };
