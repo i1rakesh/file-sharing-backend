@@ -88,7 +88,6 @@ exports.downloadFile = async (req, res) => {
         const isOwner = file.ownerId.equals(userId);
 
         const authEntry = file.authorizedUsers.find(
-            // Use .equals() for comparison with ObjectId
             auth => auth.user.equals(userId)
         );
     
@@ -105,18 +104,17 @@ exports.downloadFile = async (req, res) => {
             await logActivity(userId, fileId, 'DOWNLOAD', `Downloaded via Dashboard by ${role}.`);
 
             try {
-                // Fetch the file stream from the storage URL
                 const response = await axios({
                     method: 'get',
                     url: file.storageUrl,
-                    responseType: 'stream' // Important for streaming large files efficiently
+                    responseType: 'stream' 
                 });
 
-                // Set explicit headers to control the download
-                res.setHeader('Content-Type', file.fileType); // Use the stored MIME type (e.g., application/pdf)
-                res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`); // Force download
+                
+                res.setHeader('Content-Type', file.fileType); 
+                res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`); 
 
-                // Pipe the file stream directly to the client's response
+                
                 response.data.pipe(res);
 
                 // Handle streaming errors
@@ -127,7 +125,7 @@ exports.downloadFile = async (req, res) => {
                     }
                 });
                 
-                return; // Return to prevent further execution
+                return; 
 
             } catch (downloadError) {
                 console.error('File download stream error:', downloadError.message);
@@ -164,7 +162,6 @@ exports.shareFileWithUsers = async (req, res) => {
             return res.status(404).json({ message: 'No valid users found to share with.' });
         }
 
-        // Calculate expiry time
         const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000);
 
         const newAuthorizedUsers = targetUserIds.map(userId => ({
@@ -274,24 +271,23 @@ exports.accessSharedFile = async (req, res) => {
         if (isOwner || isAuthorizedAndNotExpired) {
             // --- AUDIT LOG DOWNLOAD ---
             await logActivity(userId, file._id, 'DOWNLOAD', `Downloaded via Shared Link by ${role}.`);
-            // --- END LOG ---
+            
 
             try {
-                // Fetch the file stream from the storage URL
+                
                 const response = await axios({
                     method: 'get',
                     url: file.storageUrl,
                     responseType: 'stream' 
                 });
 
-                // Set explicit headers to control the download
+                
                 res.setHeader('Content-Type', file.fileType);
                 res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
                 
-                // Pipe the file stream directly to the client's response
+                
                 response.data.pipe(res);
 
-                // Handle streaming errors
                 response.data.on('error', (err) => {
                     console.error('Streaming error during shared link access:', err);
                     if (!res.headersSent) {
