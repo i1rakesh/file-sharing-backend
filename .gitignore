@@ -1,0 +1,10 @@
+# dotenv environment variables
+.env
+.env.*.local
+
+
+# Dependency directories
+node_modules/
+
+# Editor directories and files
+.vscode/*
