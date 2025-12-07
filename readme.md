@@ -10,6 +10,17 @@ This backend is hosted on a free-tier service (**Render**), which utilizes a sle
 
 -----
 
+## Local Setup Instructions
+
+Follow these steps to get the server running on your local machine.
+
+### 1\. Clone the Repository
+
+```bash
+git clone <your-server-repo-url>
+cd <your-server-repo-folder>
+```
+
 ### 2\. Install Dependencies
 
 Install the required Node packages.
@@ -23,6 +34,36 @@ npm install
 > ```bash
 > npm install --legacy-peer-deps
 > ```
+
+### 3\. Environment Configuration
+
+Create a file named **`.env`** in the root directory of the server folder and add the following keys. You must provide your own credentials for MongoDB Atlas and Cloudinary.
+
+```env
+# Server Configuration
+PORT=5000
+NODE_ENV=development
+
+# Database (MongoDB Atlas is required for cloud deployment)
+MONGO_URI="mongodb+srv://<username>:<password>@<cluster_name>/<db_name>?retryWrites=true&w=majority"
+
+# Security
+JWT_SECRET="YOUR_LONG_AND_RANDOM_SECRET_KEY"
+
+# File Storage (Cloudinary)
+CLOUDINARY_CLOUD_NAME="your_cloud_name"
+CLOUDINARY_API_KEY="your_api_key"
+CLOUDINARY_API_SECRET="your_api_secret"
+
+```
+
+### 4\. Start the Server
+
+Start the application in development mode:
+
+```bash
+npm start
+```
 
 -----
 
@@ -57,50 +98,6 @@ The server provides endpoints to support the following functionalities, includin
 
   * **Link Expiry:** Owners can set an expiration time for shared links, after which access is automatically revoked.
   * **Audit Log:** Records critical file activities (shares, link generation, downloads) to a file on the server (`audit.log`).
-
------
-
-## Local Setup Instructions
-
-Follow these steps to get the server running on your local machine.
-
-### 1\. Clone the Repository
-
-```bash
-git clone <your-server-repo-url>
-cd <your-server-repo-folder>
-```
-
-
-### 3\. Environment Configuration
-
-Create a file named **`.env`** in the root directory of the server folder and add the following keys. You must provide your own credentials for MongoDB Atlas and Cloudinary.
-
-```env
-# Server Configuration
-PORT=5000
-NODE_ENV=development
-
-# Database (MongoDB Atlas is required for cloud deployment)
-MONGO_URI="mongodb+srv://<username>:<password>@<cluster_name>/<db_name>?retryWrites=true&w=majority"
-
-# Security
-JWT_SECRET="YOUR_LONG_AND_RANDOM_SECRET_KEY"
-
-# File Storage (Cloudinary)
-CLOUDINARY_CLOUD_NAME="your_cloud_name"
-CLOUDINARY_API_KEY="your_api_key"
-CLOUDINARY_API_SECRET="your_api_secret"
-
-```
-
-### 4\. Start the Server
-
-Start the application in development mode:
-
-```bash
-npm start
-```
 
 -----
 
