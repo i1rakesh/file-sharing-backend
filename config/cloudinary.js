@@ -34,13 +34,21 @@ const fileUploader = multer({
     },
  
     fileFilter: (req, file, cb) => {
-        // For this assignment, we allow most common types:
-        if (file.originalname.match(/\.(pdf|jpe?g|png|gif|docx?|xlsx?|csv|txt)$/i)) {
+        // Enforce file type validation on the server
+        const allowedMimeTypes = [
+            'image/jpeg', 'image/png', 'application/pdf', 
+            'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'text/csv',
+            'application/vnd.ms-excel', 
+        ];
+        
+        if (allowedMimeTypes.includes(file.mimetype)) {
             cb(null, true);
         } else {
-            cb(new Error('Invalid file type.'), false);
+            cb(new Error("Invalid file type. Only photos, PDF, Word, Excel, and CSV files are allowed."), false);
         }
-    },
+    }
 });
 
 

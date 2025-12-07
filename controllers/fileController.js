@@ -4,7 +4,7 @@ const User = require('../models/User');
 const mongoose = require('mongoose');
 const { v4: uuidv4 } = require('uuid');
 const jwt = require('jsonwebtoken');
-
+const axios = require('axios');
 const fs = require('fs').promises; 
 const path = require('path');
 const { logActivity } = require('../utils/audit'); 
@@ -104,7 +104,35 @@ exports.downloadFile = async (req, res) => {
             const role = isOwner ? 'Owner' : 'Viewer';
             await logActivity(userId, fileId, 'DOWNLOAD', `Downloaded via Dashboard by ${role}.`);
 
-            return res.redirect(file.storageUrl);
+            try {
+                // Fetch the file stream from the storage URL
+                const response = await axios({
+                    method: 'get',
+                    url: file.storageUrl,
+                    responseType: 'stream' // Important for streaming large files efficiently
+                });
+
+                // Set explicit headers to control the download
+                res.setHeader('Content-Type', file.fileType); // Use the stored MIME type (e.g., application/pdf)
+                res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`); // Force download
+
+                // Pipe the file stream directly to the client's response
+                response.data.pipe(res);
+
+                // Handle streaming errors
+                response.data.on('error', (err) => {
+                    console.error('Streaming error during dashboard download:', err);
+                    if (!res.headersSent) {
+                        res.status(500).json({ message: 'Error streaming file content.' });
+                    }
+                });
+                
+                return; // Return to prevent further execution
+
+            } catch (downloadError) {
+                console.error('File download stream error:', downloadError.message);
+                return res.status(500).json({ message: 'Failed to retrieve file from storage URL.' });
+            }
         } else {
             return res.status(403).json({ message: 'Access Denied: Your authorization has expired or you are not permitted.' });
         }
@@ -242,9 +270,41 @@ exports.accessSharedFile = async (req, res) => {
                 isAuthorizedAndNotExpired = true;
             }
         }
-        
+        const role = isOwner ? 'Owner' : 'Viewer';
         if (isOwner || isAuthorizedAndNotExpired) {
-            return res.redirect(file.storageUrl);
+            // --- AUDIT LOG DOWNLOAD ---
+            await logActivity(userId, file._id, 'DOWNLOAD', `Downloaded via Shared Link by ${role}.`);
+            // --- END LOG ---
+
+            try {
+                // Fetch the file stream from the storage URL
+                const response = await axios({
+                    method: 'get',
+                    url: file.storageUrl,
+                    responseType: 'stream' 
+                });
+
+                // Set explicit headers to control the download
+                res.setHeader('Content-Type', file.fileType);
+                res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+                
+                // Pipe the file stream directly to the client's response
+                response.data.pipe(res);
+
+                // Handle streaming errors
+                response.data.on('error', (err) => {
+                    console.error('Streaming error during shared link access:', err);
+                    if (!res.headersSent) {
+                        res.status(500).json({ message: 'Error streaming file content via shared link.' });
+                    }
+                });
+                
+                return;
+
+            } catch (downloadError) {
+                console.error('Shared file download stream error:', downloadError.message);
+                return res.status(500).json({ message: 'Failed to retrieve file from storage URL via shared link.' });
+            }
         } else {
             return res.status(403).json({ 
                 message: 'Access Denied: Your account is not permitted to view this file, or your access has expired.' 
